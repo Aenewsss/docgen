@@ -18,6 +18,7 @@ router = APIRouter()
 
 CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+CALLBACK_URL = os.getenv("CALLBACK_URL")
 
 # Pasta onde vamos extrair os arquivos temporariamente
 TEMP_DIR = "temp_repositories"
@@ -124,7 +125,7 @@ async def list_repos(authorization: str = Header(...)):
 
 @router.get("/github/login")
 async def login_github():
-    redirect_uri = "http://localhost:8000/github/callback"
+    redirect_uri = CALLBACK_URL
     github_oauth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={CLIENT_ID}&redirect_uri={redirect_uri}&scope=repo"
