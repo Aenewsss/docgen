@@ -2,7 +2,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes.github import router as github_router
-import httpx
+import os
+import uvicorn
 
 app = FastAPI(title="Documentação Viva")
 
@@ -20,3 +21,7 @@ app.add_middleware(
 @app.get("/")
 def root():
     return {"message": "Backend da Documentação Viva está no ar!"}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # usa a variável de ambiente ou 8000 como padrão
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
