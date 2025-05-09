@@ -19,6 +19,7 @@ router = APIRouter()
 CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 CALLBACK_URL = os.getenv("CALLBACK_URL")
+FRONT_URL = os.getenv("FRONT_URL")
 
 # Pasta onde vamos extrair os arquivos temporariamente
 TEMP_DIR = "temp_repositories"
@@ -150,4 +151,4 @@ async def github_callback(code: str):
     if not access_token:
         return {"error": "Failed to obtain access token"}
 
-    return {"access_token": access_token}
+    return RedirectResponse(f"{FRONT_URL}/github-auth?token={access_token}")
