@@ -151,4 +151,4 @@ async def github_callback(code: str):
     if not access_token:
         return {"error": "Failed to obtain access token"}
 
-    return RedirectResponse(f"{FRONT_URL}/github-auth?token={access_token}")
+    return RedirectResponse(f"{FRONT_URL}?token={access_token}")
