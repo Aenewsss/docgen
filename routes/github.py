@@ -31,6 +31,7 @@ async def download_repo_zip(
     repo_owner: str,
     repo_name: str,
     token: str,
+    user: str
 ):
     """
     Baixa o repositório em formato .zip e extrai para uma pasta temporária.
@@ -74,7 +75,7 @@ async def download_repo_zip(
             print(f"Path: {item['path']}")
             ai_analysis = analyze_file_with_ai(item["path"], item["content"])
             print(f"AI analysis: {ai_analysis}")
-            send_to_n8n_webhook(item["path"], ai_analysis)
+            send_to_n8n_webhook(item["path"], ai_analysis, user)
 
         return JSONResponse(
             {

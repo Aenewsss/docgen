@@ -7,7 +7,7 @@ load_dotenv()
 
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-def send_to_n8n_webhook(filename: str, content: str):
+def send_to_n8n_webhook(filename: str, content: str, user: str):
     """
     Envia a resposta da IA para um webhook do n8n.
 
@@ -15,7 +15,7 @@ def send_to_n8n_webhook(filename: str, content: str):
     :param content: Texto da documentação gerado pela IA
     """
     try:
-        payload = {"filename": filename, "content": content}
+        payload = {"filename": filename, "content": content, "user": user}
         headers = {"Content-Type": "application/json"}
 
         response = requests.post(WEBHOOK_URL, data=json.dumps(payload), headers=headers)
