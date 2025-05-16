@@ -13,7 +13,11 @@ UNSUPPORTED_EXTENSIONS = [
     ".ico",
     ".mjs",
     ".md",
-    ".json"
+    ".json",
+    ".git",
+    ".gitignore",
+    ".yaml",
+    ".css",
 ]
 
 

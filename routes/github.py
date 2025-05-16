@@ -8,9 +8,11 @@ import requests
 from utils.file_utils import collect_code_files
 from utils.send_docs_utils import send_to_n8n_webhook
 from utils.ai_utils import analyze_file_with_ai
+from utils.collect_code_files_for_estimation import collect_code_files_for_estimation
 
 GITHUB_API = "https://api.github.com"
 GITHUB_API_REPOS = "https://api.github.com/user/repos?per_page=100&sort=created"
+COST_PER_MILLION_TOKENS = 6.99
 
 load_dotenv()
 
@@ -25,6 +27,54 @@ FRONT_URL = os.getenv("FRONT_URL")
 TEMP_DIR = "temp_repositories"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+@router.post("/github/estimate-tokens")
+async def estimate_tokens_from_repo(repo_owner: str, repo_name: str, token: str):
+    """
+    Baixa o repositório, extrai e retorna a estimativa de tokens baseado na contagem de caracteres.
+    """
+    zip_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/zipball"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    try:
+        response = requests.get(zip_url, headers=headers, stream=True)
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Erro ao baixar repositório do GitHub",
+            )
+
+        zip_path = os.path.join(TEMP_DIR, f"{repo_owner}_{repo_name}_temp.zip")
+        with open(zip_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=128):
+                f.write(chunk)
+
+        extract_path = os.path.join(TEMP_DIR, f"{repo_owner}_{repo_name}_estimation")
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(extract_path)
+
+        collected_files = collect_code_files_for_estimation(extract_path)
+        total_tokens = sum(f["estimated_tokens"] for f in collected_files)
+        total_chars = sum(f["chars"] for f in collected_files)
+
+        estimated_cost = round((total_tokens / 1_000_000) * COST_PER_MILLION_TOKENS, 2)
+
+        return JSONResponse(
+            {
+                "repo": f"{repo_owner}/{repo_name}",
+                "total_characters": total_chars,
+                "estimated_tokens": total_tokens,
+                "files_counted": len(collected_files),
+                "estimated_cost_brl": estimated_cost,
+                "files": collected_files,
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro na estimativa: {str(e)}")
 
 @router.post("/github/download-repo")
 async def download_repo_zip(
