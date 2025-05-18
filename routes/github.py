@@ -9,6 +9,8 @@ from utils.file_utils import collect_code_files
 from utils.send_docs_utils import send_to_n8n_webhook
 from utils.ai_utils import analyze_file_with_ai
 from utils.collect_code_files_for_estimation import collect_code_files_for_estimation
+from utils.update_user_credits import update_user_credits
+from utils.set_file_tokens_analysis import set_file_tokens_analysis
 
 GITHUB_API = "https://api.github.com"
 GITHUB_API_REPOS = "https://api.github.com/user/repos?per_page=100&sort=created"
@@ -26,6 +28,7 @@ FRONT_URL = os.getenv("FRONT_URL")
 # Pasta onde vamos extrair os arquivos temporariamente
 TEMP_DIR = "temp_repositories"
 os.makedirs(TEMP_DIR, exist_ok=True)
+
 
 @router.post("/github/estimate-tokens")
 async def estimate_tokens_from_repo(repo_owner: str, repo_name: str, token: str):
@@ -76,6 +79,7 @@ async def estimate_tokens_from_repo(repo_owner: str, repo_name: str, token: str)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na estimativa: {str(e)}")
 
+
 @router.post("/github/download-repo")
 async def download_repo_zip(
     repo_owner: str, repo_name: str, token: str, user: str, email: str
@@ -120,9 +124,24 @@ async def download_repo_zip(
 
         for item in collected_files:
             print(f"Path: {item['path']}")
-            ai_analysis = analyze_file_with_ai(item["path"], item["content"])
-            print(f"AI analysis: {ai_analysis}")
-            send_to_n8n_webhook(item["path"], ai_analysis, user, email)
+            result = analyze_file_with_ai(item["path"], item["content"])
+
+            print(f"AI analysis: {result}")
+
+            # Atualiza Firebase subtraindo tokens usados
+            continue_analysis = update_user_credits(user, result["tokens_used"])
+            set_file_tokens_analysis(user, item["path"], result["prompt_tokens"], result["completion_tokens"], result["tokens_used"])
+            send_to_n8n_webhook(item["path"], result["content"], user, email)
+            
+            if continue_analysis == False:
+                return JSONResponse(
+                    {
+                        "message": "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.",
+                        "path": extract_path,
+                        "total_amount_tokens_approximately": total_amount_tokens_approximately,
+                        "collected_files": collected_files,
+                    }
+                )
 
         return JSONResponse(
             {

@@ -1,6 +1,7 @@
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 
 API_KEY = os.getenv("API_KEY")
@@ -45,7 +46,27 @@ def analyze_file_with_ai(file_path: str, content: str):
             ],
             temperature=0.3,
         )
-        return completion.choices[0].message.content
+
+        ai_content = completion.choices[0].message.content
+        total_tokens = completion.usage.total_tokens
+
+        # Tokens de entrada (prompt do usuário + sistema)
+        prompt_tokens = completion.usage.prompt_tokens
+
+        # Tokens gerados pela IA na resposta
+        completion_tokens = completion.usage.completion_tokens
+
+        return {
+            "content": ai_content,
+            "tokens_used": total_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        }
     except Exception as e:
         print(f"Erro ao analisar {file_path}: {e}")
-        return None
+        return {
+            "content": None,
+            "tokens_used": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0  ,
+        }
