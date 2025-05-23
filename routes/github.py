@@ -133,7 +133,6 @@ async def download_repo_zip(
         for item in collected_files:
             print(f"Path: {item['path']}")
             os.remove(item["path"])
-            toggle_repo_loading(user, repo_name, "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.", True)
 
             result = analyze_file_with_ai(item["path"], item["content"])
 
