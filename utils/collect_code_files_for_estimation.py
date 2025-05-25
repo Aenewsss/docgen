@@ -18,7 +18,8 @@ UNSUPPORTED_EXTENSIONS = [
     ".git",
     ".gitignore",
     ".yaml",
-    ".css"
+    ".css",
+    ".pdf"
 ]
 
 def is_valid_file(filename):
