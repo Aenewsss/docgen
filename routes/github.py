@@ -164,16 +164,16 @@ async def download_repo_zip(
 
 
 @router.get("/github/repos")
-async def list_repos(authorization: str = Header(...)):
+async def list_repos(user_id: str, email: str, authorization: str = Header(...)):
     """
     Lista todos os repositórios do usuário autenticado no GitHub
     Requer o header: Authorization: Bearer <access_token>
+    Também cria um webhook para push e pull_request em cada repositório.
     """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=400, detail="Token inválido")
 
     access_token = authorization.replace("Bearer ", "")
-
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
@@ -182,20 +182,57 @@ async def list_repos(authorization: str = Header(...)):
     async with httpx.AsyncClient() as client:
         response = await client.get(GITHUB_API_REPOS, headers=headers)
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=response.text)
 
-    repos = response.json()
-    return [
-        {
-            "name": repo["name"],
-            "full_name": repo["full_name"],
-            "private": repo["private"],
-            "html_url": repo["html_url"],
-            "clone_url": repo["clone_url"],
-        }
-        for repo in repos
-    ]
+        repos = response.json()
+        created_hooks = []
+
+        for repo in repos:
+            # Cria webhook apenas se o usuário tem permissão de admin
+            if repo.get("permissions", {}).get("admin"):
+                repo_owner = repo["owner"]["login"]
+                repo_name = repo["name"]
+
+                # Verifica se o webhook já existe
+                hooks_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/hooks"
+                hooks_response = await client.get(hooks_url, headers=headers)
+                # if hooks_response.status_code == 200:
+                #     existing_hooks = hooks_response.json()
+                #     if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
+                #         continue  # já existe
+
+                # Cria o webhook
+                hook_data = {
+                    "name": "web",
+                    "active": True,
+                    "events": ["push", "pull_request"],
+                    "config": {
+                        "url": f"{os.getenv('N8N_GITHUB_WEBHOOK')}?user_id={user_id}&email={email}",
+                        "content_type": "json"
+                    }
+                }
+
+                create_hook_response = await client.post(
+                    hooks_url, headers=headers, json=hook_data
+                )
+                if create_hook_response.status_code in [200, 201]:
+                    created_hooks.append(f"{repo_owner}/{repo_name}")
+
+    return {
+        "message": "Repositórios listados e webhooks criados (quando aplicável).",
+        "repos": [
+            {
+                "name": repo["name"],
+                "full_name": repo["full_name"],
+                "private": repo["private"],
+                "html_url": repo["html_url"],
+                "clone_url": repo["clone_url"],
+            }
+            for repo in repos
+        ],
+        "webhooks_created": created_hooks
+    }
 
 
 @router.get("/github/login")
