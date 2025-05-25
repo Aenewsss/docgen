@@ -1,7 +1,7 @@
 import shutil
 import os
 import zipfile
-from fastapi import APIRouter, Request, Header, HTTPException
+from fastapi import APIRouter, Request, Header, HTTPException, Body
 from fastapi.responses import RedirectResponse, JSONResponse
 import httpx
 from dotenv import load_dotenv
@@ -197,10 +197,10 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
                 # Verifica se o webhook já existe
                 hooks_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/hooks"
                 hooks_response = await client.get(hooks_url, headers=headers)
-                # if hooks_response.status_code == 200:
-                #     existing_hooks = hooks_response.json()
-                #     if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
-                #         continue  # já existe
+                if hooks_response.status_code == 200:
+                    existing_hooks = hooks_response.json()
+                    if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
+                        continue  # já existe
 
                 # Cria o webhook
                 hook_data = {
@@ -263,3 +263,37 @@ async def github_callback(code: str):
         return {"error": "Failed to obtain access token"}
 
     return RedirectResponse(f"{FRONT_URL}?token={access_token}")
+
+@router.post("/github/analyze-file")
+async def analyze_file_from_github(payload: dict = Body(...)):
+    """
+    Recebe um caminho de arquivo e conteúdo diretamente do GitHub e analisa o conteúdo com a IA.
+    Requer: file_path (str), content (str)
+    """
+    file_path = payload.get("file_path")
+    content = payload.get("content")
+    user = payload.get("user")
+    email = payload.get("email")
+    project = payload.get("project")
+
+    if not file_path or not content:
+        raise HTTPException(status_code=400, detail="Parâmetros 'file_path' e 'content' são obrigatórios.")
+
+    try:
+        result = analyze_file_with_ai(file_path, content)
+        print(f"AI analysis: {result}")
+
+        # Atualiza Firebase subtraindo tokens usados
+        update_user_credits(user, result["tokens_used"])
+        set_file_tokens_analysis(
+            user,
+            file_path,
+            result["prompt_tokens"],
+            result["completion_tokens"],
+            result["tokens_used"],
+        )
+        send_to_n8n_webhook(f"temp_repositories/{project}/{project}_temp/{file_path}", result["content"], user, email)
+
+        return {"file_path": file_path, "analysis_result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao analisar o arquivo: {str(e)}")
