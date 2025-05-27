@@ -168,7 +168,6 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
     """
     Lista todos os repositórios do usuário autenticado no GitHub
     Requer o header: Authorization: Bearer <access_token>
-    Também cria um webhook para push e pull_request em cada repositório.
     """
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=400, detail="Token inválido")
@@ -186,41 +185,9 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
             raise HTTPException(status_code=response.status_code, detail=response.text)
 
         repos = response.json()
-        created_hooks = []
-
-        for repo in repos:
-            # Cria webhook apenas se o usuário tem permissão de admin
-            if repo.get("permissions", {}).get("admin"):
-                repo_owner = repo["owner"]["login"]
-                repo_name = repo["name"]
-
-                # Verifica se o webhook já existe
-                hooks_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/hooks"
-                hooks_response = await client.get(hooks_url, headers=headers)
-                if hooks_response.status_code == 200:
-                    existing_hooks = hooks_response.json()
-                    if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
-                        continue  # já existe
-
-                # Cria o webhook
-                hook_data = {
-                    "name": "web",
-                    "active": True,
-                    "events": ["push", "pull_request"],
-                    "config": {
-                        "url": f"{os.getenv('N8N_GITHUB_WEBHOOK')}?user_id={user_id}&email={email}",
-                        "content_type": "json"
-                    }
-                }
-
-                create_hook_response = await client.post(
-                    hooks_url, headers=headers, json=hook_data
-                )
-                if create_hook_response.status_code in [200, 201]:
-                    created_hooks.append(f"{repo_owner}/{repo_name}")
 
     return {
-        "message": "Repositórios listados e webhooks criados (quando aplicável).",
+        "message": "Repositórios listados.",
         "repos": [
             {
                 "name": repo["name"],
@@ -231,7 +198,6 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
             }
             for repo in repos
         ],
-        "webhooks_created": created_hooks
     }
 
 
@@ -298,3 +264,47 @@ async def analyze_file_from_github(payload: dict = Body(...)):
         return {"file_path": file_path, "analysis_result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao analisar o arquivo: {str(e)}")
+
+@router.post("/github/create-webhook")
+async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...), user_id: str = Body(...), email: str = Body(...), authorization: str = Header(...)):
+    """
+    Cria webhook em um repositório específico fornecido pelo usuário.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=400, detail="Token inválido")
+
+    access_token = authorization.replace("Bearer ", "")
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    hooks_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/hooks"
+
+    async with httpx.AsyncClient() as client:
+        # Verifica se o webhook já existe
+        hooks_response = await client.get(hooks_url, headers=headers)
+        if hooks_response.status_code == 200:
+            existing_hooks = hooks_response.json()
+            if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
+                return {"message": "Webhook já existe para esse repositório."}
+
+        # Cria o webhook
+        hook_data = {
+            "name": "web",
+            "active": True,
+            "events": ["push", "pull_request"],
+            "config": {
+                "url": f"{os.getenv('N8N_GITHUB_WEBHOOK')}?user_id={user_id}&email={email}",
+                "content_type": "json"
+            }
+        }
+
+        create_hook_response = await client.post(
+            hooks_url, headers=headers, json=hook_data
+        )
+
+        if create_hook_response.status_code in [200, 201]:
+            return {"message": f"Webhook criado com sucesso para {repo_owner}/{repo_name}"}
+        else:
+            raise HTTPException(status_code=create_hook_response.status_code, detail=create_hook_response.text)
