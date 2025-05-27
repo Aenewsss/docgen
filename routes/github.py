@@ -147,6 +147,7 @@ async def download_repo_zip(
                 result["prompt_tokens"],
                 result["completion_tokens"],
                 result["tokens_used"],
+                f"{repo_owner}_{repo_name}"
             )
             send_to_n8n_webhook(item["path"], result["content"], user, email)
 
@@ -258,6 +259,7 @@ async def analyze_file_from_github(payload: dict = Body(...)):
             result["prompt_tokens"],
             result["completion_tokens"],
             result["tokens_used"],
+            project
         )
         
         send_to_n8n_webhook(f"temp_repositories/{project}/{project}_temp/{file_path}", result["content"], user, email)
