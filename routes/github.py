@@ -13,6 +13,7 @@ from utils.collect_code_files_for_estimation import collect_code_files_for_estim
 from utils.update_user_credits import update_user_credits
 from utils.set_file_tokens_analysis import set_file_tokens_analysis
 from utils.toggle_repo_loading import toggle_repo_loading
+from firebase_admin import db as firebase_db
 
 GITHUB_API = "https://api.github.com"
 GITHUB_API_REPOS = "https://api.github.com/user/repos?per_page=100&sort=created"
@@ -305,6 +306,50 @@ async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
         )
 
         if create_hook_response.status_code in [200, 201]:
+            try:
+                project_ref = firebase_db.reference(f"documentations/{user_id}/{repo_owner}_{repo_name}")
+                project_ref.update({"autoUpdate": True})
+            except Exception as firebase_error:
+                print(f"Erro ao atualizar autoUpdate no Firebase: {firebase_error}")
             return {"message": f"Webhook criado com sucesso para {repo_owner}/{repo_name}"}
         else:
             raise HTTPException(status_code=create_hook_response.status_code, detail=create_hook_response.text)
+
+@router.post("/github/delete-webhook")
+async def delete_webhook(repo_owner: str = Body(...), repo_name: str = Body(...), user_id: str = Body(...), authorization: str = Header(...)):
+    """
+    Remove o webhook de um repositório específico fornecido pelo usuário.
+    """
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=400, detail="Token inválido")
+
+    access_token = authorization.replace("Bearer ", "")
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+    }
+
+    hooks_url = f"{GITHUB_API}/repos/{repo_owner}/{repo_name}/hooks"
+
+    async with httpx.AsyncClient() as client:
+        hooks_response = await client.get(hooks_url, headers=headers)
+        if hooks_response.status_code != 200:
+            raise HTTPException(status_code=hooks_response.status_code, detail="Erro ao buscar hooks existentes")
+
+        existing_hooks = hooks_response.json()
+        for h in existing_hooks:
+            if os.getenv("N8N_GITHUB_WEBHOOK") in h["config"].get("url"):
+                hook_id = h["id"]
+                delete_url = f"{hooks_url}/{hook_id}"
+                delete_response = await client.delete(delete_url, headers=headers)
+                if delete_response.status_code in [200, 204]:
+                    try:
+                        project_ref = firebase_db.reference(f"documentations/{user_id}/{repo_owner}_{repo_name}")
+                        project_ref.update({"autoUpdate": False})
+                    except Exception as firebase_error:
+                        print(f"Erro ao atualizar autoUpdate no Firebase: {firebase_error}")
+                    return {"message": f"Webhook removido com sucesso de {repo_owner}/{repo_name}"}
+                else:
+                    raise HTTPException(status_code=delete_response.status_code, detail="Erro ao remover webhook")
+
+        raise {"message": "Webhook não encontrado para esse repositório."}
