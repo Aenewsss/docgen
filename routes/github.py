@@ -147,21 +147,26 @@ async def download_repo_zip(
                 result["prompt_tokens"],
                 result["completion_tokens"],
                 result["tokens_used"],
-                f"{repo_owner}_{repo_name}"
+                f"{repo_owner}_{repo_name}",
             )
             send_to_n8n_webhook(item["path"], result["content"], user, email)
 
             if continue_analysis == False:
                 shutil.rmtree(extract_path)
-                toggle_repo_loading(user, repo_name, "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.", True)
+                toggle_repo_loading(
+                    user,
+                    repo_name,
+                    "Limite de créditos atingido. O repositório foi processado parcialmente com base no seu plano atual. Para continuar a análise, considere realizar o upgrade ou aguarde a renovação dos créditos.",
+                    True,
+                )
                 return
 
         shutil.rmtree(extract_path)
         toggle_repo_loading(user, repo_name, "Repositório documentado com sucesso")
-        return 
+        return
 
     except Exception as e:
-        toggle_repo_loading(user, repo_name,f"Erro: {str(e)}", True)
+        toggle_repo_loading(user, repo_name, f"Erro: {str(e)}", True)
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
 
 
@@ -180,6 +185,27 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
         "Accept": "application/vnd.github+json",
     }
 
+    # user_ref = firebase_db.reference(f"users/{user_id}")
+    # user_data = user_ref.get()
+
+    # if "github_user" not in user_data:
+    #     # Descobre o usuário atual autenticado no GitHub
+    #     async with httpx.AsyncClient() as client:
+    #         user_info_response = await client.get(f"{GITHUB_API}/user", headers=headers)
+    #         if user_info_response.status_code == 200:
+    #             user_info = user_info_response.json()
+    #             github_user = {
+    #                 "login": user_info.get("login"),
+    #                 "type": user_info.get("type"),  # "User" ou "Organization"
+    #                 "avatar_url": user_info.get("avatar_url"),
+    #                 "html_url": user_info.get("html_url"),
+    #             }
+    #             user_ref.update({"github_user": github_user})
+    #         else:
+    #             raise HTTPException(
+    #                 status_code=500, detail="Erro ao obter dados do usuário GitHub"
+    #             )
+
     async with httpx.AsyncClient() as client:
         response = await client.get(GITHUB_API_REPOS, headers=headers)
 
@@ -197,6 +223,7 @@ async def list_repos(user_id: str, email: str, authorization: str = Header(...))
                 "private": repo["private"],
                 "html_url": repo["html_url"],
                 "clone_url": repo["clone_url"],
+                "type": repo["owner"]["type"],
             }
             for repo in repos
         ],
@@ -232,6 +259,7 @@ async def github_callback(code: str):
 
     return RedirectResponse(f"{FRONT_URL}?token={access_token}")
 
+
 @router.post("/github/analyze-file")
 async def analyze_file_from_github(payload: dict = Body(...)):
     """
@@ -245,7 +273,10 @@ async def analyze_file_from_github(payload: dict = Body(...)):
     project = payload.get("project")
 
     if not file_path or not content:
-        raise HTTPException(status_code=400, detail="Parâmetros 'file_path' e 'content' são obrigatórios.")
+        raise HTTPException(
+            status_code=400,
+            detail="Parâmetros 'file_path' e 'content' são obrigatórios.",
+        )
 
     try:
         result = analyze_file_with_ai(file_path, content)
@@ -259,17 +290,31 @@ async def analyze_file_from_github(payload: dict = Body(...)):
             result["prompt_tokens"],
             result["completion_tokens"],
             result["tokens_used"],
-            project
+            project,
         )
-        
-        send_to_n8n_webhook(f"temp_repositories/{project}/{project}_temp/{file_path}", result["content"], user, email)
+
+        send_to_n8n_webhook(
+            f"temp_repositories/{project}/{project}_temp/{file_path}",
+            result["content"],
+            user,
+            email,
+        )
 
         return {"file_path": file_path, "analysis_result": result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao analisar o arquivo: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Erro ao analisar o arquivo: {str(e)}"
+        )
+
 
 @router.post("/github/create-webhook")
-async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...), user_id: str = Body(...), email: str = Body(...), authorization: str = Header(...)):
+async def create_webhook(
+    repo_owner: str = Body(...),
+    repo_name: str = Body(...),
+    user_id: str = Body(...),
+    email: str = Body(...),
+    authorization: str = Header(...),
+):
     """
     Cria webhook em um repositório específico fornecido pelo usuário.
     """
@@ -289,7 +334,10 @@ async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
         hooks_response = await client.get(hooks_url, headers=headers)
         if hooks_response.status_code == 200:
             existing_hooks = hooks_response.json()
-            if any(h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK") for h in existing_hooks):
+            if any(
+                h["config"].get("url") == os.getenv("N8N_GITHUB_WEBHOOK")
+                for h in existing_hooks
+            ):
                 return {"message": "Webhook já existe para esse repositório."}
 
         # Cria o webhook
@@ -299,8 +347,8 @@ async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
             "events": ["push", "pull_request"],
             "config": {
                 "url": f"{os.getenv('N8N_GITHUB_WEBHOOK')}?user_id={user_id}&email={email}",
-                "content_type": "json"
-            }
+                "content_type": "json",
+            },
         }
 
         create_hook_response = await client.post(
@@ -309,16 +357,29 @@ async def create_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
 
         if create_hook_response.status_code in [200, 201]:
             try:
-                project_ref = firebase_db.reference(f"documentations/{user_id}/{repo_owner}_{repo_name}")
+                project_ref = firebase_db.reference(
+                    f"documentations/{user_id}/{repo_owner}_{repo_name}"
+                )
                 project_ref.update({"autoUpdate": True})
             except Exception as firebase_error:
                 print(f"Erro ao atualizar autoUpdate no Firebase: {firebase_error}")
-            return {"message": f"Webhook criado com sucesso para {repo_owner}/{repo_name}"}
+            return {
+                "message": f"Webhook criado com sucesso para {repo_owner}/{repo_name}"
+            }
         else:
-            raise HTTPException(status_code=create_hook_response.status_code, detail=create_hook_response.text)
+            raise HTTPException(
+                status_code=create_hook_response.status_code,
+                detail=create_hook_response.text,
+            )
+
 
 @router.post("/github/delete-webhook")
-async def delete_webhook(repo_owner: str = Body(...), repo_name: str = Body(...), user_id: str = Body(...), authorization: str = Header(...)):
+async def delete_webhook(
+    repo_owner: str = Body(...),
+    repo_name: str = Body(...),
+    user_id: str = Body(...),
+    authorization: str = Header(...),
+):
     """
     Remove o webhook de um repositório específico fornecido pelo usuário.
     """
@@ -336,7 +397,10 @@ async def delete_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
     async with httpx.AsyncClient() as client:
         hooks_response = await client.get(hooks_url, headers=headers)
         if hooks_response.status_code != 200:
-            raise HTTPException(status_code=hooks_response.status_code, detail="Erro ao buscar hooks existentes")
+            raise HTTPException(
+                status_code=hooks_response.status_code,
+                detail="Erro ao buscar hooks existentes",
+            )
 
         existing_hooks = hooks_response.json()
         for h in existing_hooks:
@@ -346,12 +410,21 @@ async def delete_webhook(repo_owner: str = Body(...), repo_name: str = Body(...)
                 delete_response = await client.delete(delete_url, headers=headers)
                 if delete_response.status_code in [200, 204]:
                     try:
-                        project_ref = firebase_db.reference(f"documentations/{user_id}/{repo_owner}_{repo_name}")
+                        project_ref = firebase_db.reference(
+                            f"documentations/{user_id}/{repo_owner}_{repo_name}"
+                        )
                         project_ref.update({"autoUpdate": False})
                     except Exception as firebase_error:
-                        print(f"Erro ao atualizar autoUpdate no Firebase: {firebase_error}")
-                    return {"message": f"Webhook removido com sucesso de {repo_owner}/{repo_name}"}
+                        print(
+                            f"Erro ao atualizar autoUpdate no Firebase: {firebase_error}"
+                        )
+                    return {
+                        "message": f"Webhook removido com sucesso de {repo_owner}/{repo_name}"
+                    }
                 else:
-                    raise HTTPException(status_code=delete_response.status_code, detail="Erro ao remover webhook")
+                    raise HTTPException(
+                        status_code=delete_response.status_code,
+                        detail="Erro ao remover webhook",
+                    )
 
         raise {"message": "Webhook não encontrado para esse repositório."}
